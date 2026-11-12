@@ -1,0 +1,1286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>lubdub</title>
+<!--
+  lubdub reference web client — the writer's side, as one static page.
+
+  A port of ios/ (its README is the blueprint): the wall is a fogged-up
+  window, letters are panes of misted glass in a pile that fans out along an
+  arc, the centered card pulls out full-size and a developed letter is wiped
+  clear with a finger. A locked letter only lets you thin the fog for a
+  moment before it settles back; the only words it ever says are "not yet".
+
+  Same numbers as the iOS build: card 268x184, arc radius 600 at 19° per
+  card, brush 64, half the pane wiped = clear, locked re-fog 1.2s hold +
+  3.2s fade, springs (0.5, 0.82) and (0.62, 0.74).
+
+  The one porting rule that matters (WheelSpin's warning, translated): the
+  cards' screen positions are driven frame by frame from a spring on `pos` —
+  never put a CSS transition on the card transforms, it would interpolate
+  chords instead of arcs and eat the release velocity.
+
+  Serve it from server.py (which mounts web/ if present) so it shares the
+  API's origin, or host it anywhere and point it at your server in settings.
+-->
+<style>
+  :root {
+    --wax: rgb(178, 92, 97);
+    --blue: rgb(115, 148, 189);
+    --ink: rgba(247, 247, 247, 0.97);
+    --soft: rgba(247, 247, 247, 0.62);
+    --letter-font: Georgia, "Times New Roman", "Songti SC", serif; /* the single swap point */
+    --card-w: 268px;
+    --card-h: 184px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: rgb(23, 29, 40);
+    touch-action: none;
+    user-select: none; -webkit-user-select: none;
+  }
+
+  /* ---- the window ---- */
+  #bg { position: fixed; inset: 0; background-size: cover; background-position: center; }
+  #bg .breath, #bg .grain, #bg .veil { position: absolute; inset: 0; pointer-events: none; }
+  #wall { position: fixed; inset: 0; }
+  #empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 0 40px; color: var(--soft);
+    font-family: var(--letter-font); font-size: 15px; line-height: 1.8; white-space: pre-line;
+    pointer-events: none;
+  }
+  #toast {
+    position: fixed; top: calc(env(safe-area-inset-top, 0px) + 10px); left: 50%;
+    transform: translateX(-50%); max-width: 80vw;
+    color: var(--ink); font-size: 12px; text-align: center;
+    background: rgba(0,0,0,0.35); padding: 6px 14px; border-radius: 999px;
+    opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 60;
+  }
+
+  /* ---- a pane of glass ---- */
+  .card {
+    position: absolute; left: 0; top: 0;
+    width: var(--card-w); height: var(--card-h);
+    border-radius: 26px; overflow: hidden;
+    box-shadow: 0 8px 14px rgba(0,0,0,0.22);
+    will-change: transform;
+    /* no transition — transforms are spring-driven frame by frame */
+  }
+  .rim::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+    background: linear-gradient(135deg, rgba(255,255,255,.6), rgba(255,255,255,.14), rgba(255,255,255,.34));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    pointer-events: none;
+  }
+  .scene { position: absolute; inset: 0; background-size: cover; background-position: center; }
+  .layer { position: absolute; inset: 0; pointer-events: none; }
+  .press-dark { background: rgba(0,0,0,0.16); } .press-light { background: rgba(255,255,255,0.16); }
+
+  .face { position: absolute; inset: 0; }
+  .face .text { position: absolute; inset: 0; padding: 18px 22px; display: flex; flex-direction: column;
+    font-family: var(--letter-font); color: var(--ink); text-align: left; }
+  .face .title { font-size: 20px; margin-bottom: 7px; }
+  .face .body { font-size: 15px; line-height: 1.55; overflow: hidden; display: -webkit-box;
+    -webkit-box-orient: vertical; -webkit-line-clamp: 5; color: var(--ink); opacity: .94;
+    white-space: pre-wrap; word-break: break-word; }
+  .face .foot { margin-top: auto; display: flex; align-items: flex-end; gap: 9px; font-size: 13px; }
+  .face .foot .right { margin-left: auto; color: var(--soft); }
+  .face .foot .replies { color: var(--blue); }
+  .fog-title { opacity: .85; }
+
+  /* the wax seal — a small heart, beating slowly until the letter develops */
+  .seal { position: relative; border-radius: 50%; flex: none;
+    background: radial-gradient(circle at 38% 32%, rgba(178,92,97,.95), rgba(178,92,97,.72));
+    box-shadow: 0 1px 4px rgba(178,92,97,.35); }
+  .seal::before { content: ""; position: absolute; inset: 12%; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.22); }
+  .seal .heart { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: rgba(255,255,255,.88); animation: beat 0.9s ease-in-out infinite alternate; }
+  .seal.still { opacity: .7; } .seal.still .heart { animation: none; }
+  @keyframes beat { from { transform: scale(0.94); } to { transform: scale(1.08); } }
+  @media (prefers-reduced-motion: reduce) { .seal .heart { animation: none; } }
+
+  /* ---- the pulled-out pane ---- */
+  #overlay { position: fixed; inset: 0; z-index: 30; display: none; }
+  #overlay.on { display: block; }
+  #overlay .dim { position: absolute; inset: 0; background: rgba(0,0,0,0.38); opacity: 0; transition: opacity .3s; }
+  #pane-wrap { position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px; will-change: transform, opacity; }
+  #pane { position: relative; border-radius: 34px; overflow: hidden;
+    box-shadow: 0 8px 14px rgba(0,0,0,0.22); }
+  #pane .page { position: absolute; inset: 0; overflow-y: auto; padding: 30px 26px 24px;
+    font-family: var(--letter-font); color: var(--ink); touch-action: pan-y; }
+  #pane .page.fogged { overflow: hidden; touch-action: none; }
+  #pane .page h2 { font-size: 26px; font-weight: normal; margin-bottom: 8px; }
+  #pane .page .letter-body { font-size: 19px; line-height: 1.75; white-space: pre-wrap; word-break: break-word; }
+  #pane .page .stamp { font-size: 14px; color: var(--soft); text-align: right; margin-top: 14px; }
+  #pane .page hr { border: 0; height: 0.5px; background: var(--ink); opacity: .14; margin: 20px 0; }
+  #pane .page .reply-body { font-size: 18px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+  #pane .page .reply-stamp { font-size: 14px; color: var(--blue); text-align: right; margin-top: 10px; }
+  #fogpane { position: absolute; inset: 0; touch-action: none; }
+  #notyet { font-family: var(--letter-font); font-size: 11px; letter-spacing: 2px;
+    color: rgba(255,255,255,.85); text-shadow: 0 0 4px rgba(0,0,0,.4);
+    opacity: 0; transform: translateX(0); }
+  #notyet.on { opacity: 1; transform: translateX(5px); transition: opacity .18s, transform .18s cubic-bezier(.2,2.4,.4,1); }
+  #pane-close { position: absolute; top: 12px; right: 12px; width: 28px; height: 28px; border-radius: 50%;
+    background: rgba(0,0,0,.28); border: 0; color: rgba(255,255,255,.95); font-size: 13px; line-height: 1;
+    cursor: pointer; z-index: 3; }
+
+  /* ---- chrome ---- */
+  #topbtns { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); right: 18px;
+    display: flex; gap: 10px; z-index: 20; }
+  .roundbtn { width: 32px; height: 32px; border-radius: 50%; border: 0.8px solid rgba(255,255,255,.25);
+    background: rgba(40,46,58,.45); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    color: var(--ink); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .roundbtn svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6;
+    stroke-linecap: round; stroke-linejoin: round; }
+  #write {
+    position: fixed; right: 22px; bottom: calc(env(safe-area-inset-bottom, 0px) + 26px); z-index: 20;
+    display: flex; align-items: center; gap: 6px; padding: 11px 18px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.5); cursor: pointer;
+    background-size: cover; background-position: center; color: var(--ink);
+    font-family: var(--letter-font); font-size: 15px; letter-spacing: 1.2px;
+    box-shadow: 0 5px 10px rgba(0,0,0,.2); overflow: hidden;
+  }
+  #write .press { position: absolute; inset: 0; pointer-events: none; }
+
+  /* ---- sheets ---- */
+  .sheet-back { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,0.38);
+    display: none; align-items: flex-end; justify-content: center; }
+  .sheet-back.on { display: flex; }
+  .sheet { background: rgb(242, 242, 247); color: rgb(28,28,30); width: 100%; max-width: 560px;
+    max-height: 88dvh; overflow-y: auto; border-radius: 18px 18px 0 0; padding: 16px 20px 30px;
+    touch-action: pan-y; user-select: text; -webkit-user-select: text; }
+  @media (prefers-color-scheme: dark) {
+    .sheet { background: rgb(28,28,30); color: rgb(240,240,245); }
+    .sheet input[type=text], .sheet input[type=password], .sheet input[type=datetime-local],
+    .sheet textarea, .seg { background: rgb(44,44,46) !important; color: inherit; }
+    .quick { background: rgb(44,44,46); color: inherit; }
+  }
+  .sheet .bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .sheet .bar .mid { font-family: var(--letter-font); font-size: 11px; letter-spacing: 3px; opacity: .55; }
+  .sheet .bar button { border: 0; background: none; font-size: 14px; cursor: pointer; color: inherit; opacity: .55; padding: 6px; }
+  .sheet .bar button.go { opacity: 1; color: var(--wax); font-weight: 500; }
+  .sheet .bar button:disabled { color: inherit; opacity: .3; }
+  .sheet input[type=text], .sheet input[type=password], .sheet input[type=datetime-local], .sheet textarea {
+    width: 100%; border: 0; border-radius: 11px; background: #fff; padding: 11px 13px;
+    font-size: 15px; font-family: inherit; outline: none; color: inherit;
+  }
+  .sheet textarea { font-family: var(--letter-font); font-size: 16px; line-height: 1.6; height: 230px; resize: none; border-radius: 13px; }
+  .sheet .gap { height: 12px; }
+  .sheet .hint { font-size: 12px; line-height: 1.5; opacity: .55; margin-top: 12px; }
+  .sheet .err { font-size: 12.5px; color: var(--wax); margin-top: 10px; min-height: 1em; }
+  .seg { display: flex; background: #e3e3e8; border-radius: 9px; padding: 2px; margin-bottom: 11px; }
+  .seg button { flex: 1; border: 0; background: none; padding: 7px; border-radius: 7px; font-size: 13px; cursor: pointer; color: inherit; }
+  .seg button.on { background: rgba(178,92,97,.85); color: #fff; }
+  .quickgrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .quick { border: 0; border-radius: 999px; padding: 9px; font-size: 13.5px; background: #fff; cursor: pointer; color: inherit; }
+  .quick.on { background: rgba(178,92,97,.85); color: #fff; }
+  .develops { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--wax); margin-top: 11px; }
+  .sheet label.small { display: block; font-size: 11px; letter-spacing: 2px; opacity: .5; margin: 14px 0 6px; text-transform: uppercase; }
+
+  /* ---- confirm ---- */
+  #confirm .box { background: rgb(242,242,247); border-radius: 14px; width: min(78vw, 300px);
+    padding: 18px 16px 8px; text-align: center; margin: auto; }
+  #confirm { align-items: center; }
+  @media (prefers-color-scheme: dark) { #confirm .box { background: rgb(44,44,46); color: rgb(240,240,245); } }
+  #confirm .q { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  #confirm .m { font-size: 12.5px; opacity: .65; line-height: 1.45; margin-bottom: 12px; }
+  #confirm button { display: block; width: 100%; border: 0; background: none; padding: 12px;
+    font-size: 15px; cursor: pointer; border-top: 0.5px solid rgba(128,128,128,.25); color: inherit; }
+  #confirm button.danger { color: rgb(215, 72, 72); }
+
+  /* ---- chat-card demo (fixture data, no server needed) ---- */
+  .demo-label { font-family: var(--letter-font); font-size: 10.5px; letter-spacing: 1.5px; opacity: .55; margin: 20px 0 8px; }
+  .chatcard { max-width: 340px; }
+  .chatcard.locked-card { display: flex; align-items: center; gap: 11px; }
+  .chatcard .lk-head { display: flex; align-items: center; gap: 5px; font-family: var(--letter-font);
+    font-size: 10px; letter-spacing: 2px; opacity: .55; }
+  .chatcard .lk-when { font-size: 15px; margin: 3px 0; }
+  .chatcard .lk-count { font-family: var(--letter-font); font-size: 11px; opacity: .55; }
+  .chatcard .rv-head { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
+  .chatcard .avatar { width: 36px; height: 36px; border-radius: 50%; flex: none;
+    background: linear-gradient(135deg, rgba(178,92,97,.85), rgba(115,148,189,.85));
+    color: rgba(255,255,255,.92); display: flex; align-items: center; justify-content: center;
+    font-family: var(--letter-font); font-size: 15px; font-weight: 600; }
+  .chatcard .rv-name { font-size: 14px; font-weight: 600; }
+  .chatcard .rv-meta { font-family: var(--letter-font); font-size: 10.5px; opacity: .55; }
+  .chatcard .rv-env { margin-left: auto; color: rgba(178,92,97,.8); }
+  .chatcard .rv-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+  .chatcard .rv-body { font-size: 15px; line-height: 1.5; display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 8; overflow: hidden; }
+  .replyrow { display: flex; gap: 9px; max-width: 340px; }
+  .replyrow .rule { width: 2px; border-radius: 1px; background: rgba(115,148,189,.7); flex: none; }
+  .replyrow .r-head { display: flex; gap: 6px; font-family: var(--letter-font); font-size: 12px; margin-bottom: 3px; }
+  .replyrow .r-head .a { color: var(--blue); } .replyrow .r-head .t { font-size: 10px; opacity: .55; align-self: center; }
+  .replyrow .r-body { font-size: 14px; line-height: 1.5; }
+  .tombstone { font-family: var(--letter-font); font-style: italic; font-size: 11.5px; opacity: .5;
+    text-align: center; padding: 6px 0; }
+
+  /* ---- looks panel ---- */
+  #looks .panel { position: fixed; left: 14px; right: 14px; bottom: calc(env(safe-area-inset-bottom,0px) + 20px);
+    max-width: 540px; margin: 0 auto; border-radius: 24px; padding: 18px; color: rgb(242,242,242);
+    background: rgba(30,34,44,.72); backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+    border: 1px solid rgba(255,255,255,.18); }
+  #looks { background: rgba(0,0,0,.28); align-items: stretch; }
+  #looks .ttl { font-family: var(--letter-font); font-size: 15px; letter-spacing: 1.2px; }
+  #looks .row { display: flex; gap: 8px; margin: 9px 0 14px; }
+  #looks .chip { flex: 1; border-radius: 999px; padding: 9px; font-size: 12.5px; text-align: center;
+    border: 0.8px solid rgba(255,255,255,.35); color: rgba(255,255,255,.9); background: none; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #looks .chip.on { background: rgba(255,255,255,.88); color: rgba(0,0,0,.8); border-color: transparent; }
+  #looks .small { font-size: 11px; letter-spacing: 2px; opacity: .6; font-weight: 500; }
+  #looks .slider { display: flex; align-items: center; gap: 10px; margin: 4px 0 10px; font-size: 12px; }
+  #looks .slider span.pct { width: 38px; text-align: right; font-variant-numeric: tabular-nums; opacity: .6; font-size: 11px; }
+  #looks input[type=range] { flex: 1; accent-color: rgba(255,255,255,.75); }
+  #looks .switchrow { display: flex; align-items: center; justify-content: space-between; margin: 2px 0 10px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div id="bg"><div class="breath layer"></div><div class="grain layer"></div><div class="veil layer"></div></div>
+<div id="wall"><div id="empty"></div></div>
+<div id="toast"></div>
+
+<div id="topbtns">
+  <button class="roundbtn" id="btn-demo" title="chat cards demo"><svg viewBox="0 0 16 16"><path d="M2 3.5h9v6H5L2.5 12V3.5z"/><path d="M11 6h2.5v5.5L11.8 10H7.5"/></svg></button>
+  <button class="roundbtn" id="btn-looks" title="looks"><svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="5.6" cy="6.4" r="1.1"/><path d="M3 11.5l3.4-3.2 2.4 2.2 2.6-2.8 2.6 2.6"/></svg></button>
+  <button class="roundbtn" id="btn-settings" title="settings"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6L11 5M5 11l-1.4 1.4"/></svg></button>
+</div>
+<button id="write"><div class="press"></div><svg width="12" height="12" viewBox="0 0 12 12" style="position:relative"><path d="M3 5V3.6a3 3 0 016 0V5M2.4 5h7.2v4.6H2.4z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><span style="position:relative">Write</span></button>
+
+<div id="overlay">
+  <div class="dim"></div>
+  <div id="pane-wrap">
+    <div id="pane" class="rim">
+      <div class="page"></div>
+      <canvas id="fogpane"></canvas>
+      <button id="pane-close">✕</button>
+    </div>
+    <div id="notyet">not yet — the fog closed back over</div>
+  </div>
+</div>
+
+<div class="sheet-back" id="composer">
+  <div class="sheet">
+    <div class="bar">
+      <button id="c-cancel">Cancel</button><span class="mid">A LETTER</span>
+      <button class="go" id="c-send">🔒 Lock</button>
+    </div>
+    <input type="text" id="c-title" maxlength="80" placeholder="Title (optional — it travels only at the reveal)" style="font-family:var(--letter-font)">
+    <div class="gap"></div>
+    <textarea id="c-text" maxlength="4000" placeholder="Write now. It develops later."></textarea>
+    <div class="gap"></div>
+    <div class="seg"><button id="c-dur" class="on">In a while</button><button id="c-at">At a time</button></div>
+    <div class="quickgrid" id="c-quick"></div>
+    <input type="datetime-local" id="c-when" style="display:none">
+    <div class="develops">🔒 <span id="c-develops"></span></div>
+    <p class="hint">Your agent is told at once that a letter exists — and when it develops. Nothing else travels until then, the title included. Once it has read you, it can write back.</p>
+    <div class="err" id="c-err"></div>
+  </div>
+</div>
+
+<div class="sheet-back" id="settings">
+  <div class="sheet">
+    <div class="bar"><span></span><span class="mid">LUBDUB</span><button class="go" id="s-done">Done</button></div>
+    <label class="small">Server</label>
+    <input type="text" id="s-server" placeholder="same origin (served by server.py)" autocapitalize="none" autocorrect="off">
+    <div class="gap"></div>
+    <input type="password" id="s-token" placeholder="writer token">
+    <p class="hint">The writer_token from your server's config.json. Served by server.py this page shares its origin; hosted elsewhere, set the server address. Both values live in this browser's localStorage — it's a reference client.</p>
+    <label class="small">Reveal card</label>
+    <input type="text" id="s-author" placeholder="name shown on the card">
+  </div>
+</div>
+
+<div class="sheet-back" id="demo">
+  <div class="sheet" id="demo-body">
+    <div class="bar"><span></span><span class="mid">CHAT CARDS — FIXTURE DATA</span><button class="go" id="d-done">Done</button></div>
+  </div>
+</div>
+
+<div class="sheet-back" id="confirm"><div class="box">
+  <div class="q"></div><div class="m"></div>
+  <button class="danger" id="cf-yes"></button><button id="cf-no">Cancel</button>
+</div></div>
+
+<div class="sheet-back" id="looks"><div class="panel">
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <span class="ttl">The wall's looks</span>
+    <button class="go" id="l-done" style="border:0;background:none;color:inherit;font-size:13px;cursor:pointer;padding:4px 0 4px 12px">Done</button>
+  </div>
+  <div style="margin-top:12px"><span class="small">WINDOW</span>
+    <div class="row"><button class="chip" id="l-bg-default">Built-in scene</button><button class="chip" id="l-bg-pick">Pick a photo</button></div>
+    <div class="switchrow"><span style="opacity:.75">Fog on the window</span><input type="checkbox" id="l-bgfog" style="width:20px;height:20px;accent-color:rgba(255,255,255,.82)"></div>
+    <div class="slider"><span style="opacity:.75">Veil</span><input type="range" id="l-bgveil" min="0" max="0.8" step="0.01"><span class="pct"></span></div>
+    <span class="small">CARDS</span>
+    <div class="row"><button class="chip" id="l-card-default">Same as window</button><button class="chip" id="l-card-pick">Pick a photo</button></div>
+    <div class="slider"><span style="opacity:.75">Veil</span><input type="range" id="l-cardveil" min="0" max="0.8" step="0.01"><span class="pct"></span></div>
+  </div>
+  <input type="file" id="l-file" accept="image/*" style="display:none">
+</div></div>
+
+<script>
+"use strict";
+// ======================================================================
+// constants — same numbers as ios/ (see its README)
+const CARD_W = 268, CARD_H = 184;
+const RADIUS = 600, STEP = 19 * Math.PI / 180;
+const PITCH = RADIUS * Math.sin(STEP);
+const BRUSH = 64, COLS = 9, ROWS = 12, CLEAR_FRAC = 0.5;
+const REFOG_HOLD = 1.2, REFOG_FADE = 3.2, REFOG = REFOG_HOLD + REFOG_FADE;
+const WAX = "rgb(178,92,97)", BLUE = "rgb(115,148,189)";
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const $ = s => document.querySelector(s);
+
+// ---- storage (a reference client's shortcut; every touch wrapped) ----
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("lubdub_" + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("lubdub_" + k, JSON.stringify(v)); } catch {} },
+};
+const wiped = new Set(store.get("wiped", []));
+const markWiped = id => { wiped.add(id); store.set("wiped", [...wiped]); };
+
+// ======================================================================
+// seeded randomness — the same letter grows the same droplets every time
+function seedRng(str) {
+  let h = 0x811c9dc5 >>> 0, h2 = 0x1505;
+  for (const c of str) { h = Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0; h2 = (Math.imul(h2, 33) ^ c.charCodeAt(0)) >>> 0; }
+  let s = (h || 1) >>> 0, t = (h2 || 2) >>> 0;
+  return () => {
+    s = (s + 0x9E3779B9) >>> 0;
+    let z = (s ^ t) >>> 0;
+    z = Math.imul(z ^ (z >>> 15), 0x85EBCA6B) >>> 0;
+    z = Math.imul(z ^ (z >>> 13), 0xC2B2AE35) >>> 0;
+    t = z;
+    return ((z ^ (z >>> 16)) >>> 0) / 4294967296;
+  };
+}
+const rin = (rng, a, b) => a + rng() * (b - a);
+
+// ======================================================================
+// the scene: one picture, shown two ways (FogScene.swift)
+// fog is never a color laid on top — it is the scene itself gone soft.
+const Scene = {
+  page: null, card: null,  // {sharp, fog, dark} as blob URLs
+  bgVeil: store.get("bg_veil", 0), cardVeil: store.get("card_veil", 0),
+  bgFog: store.get("bg_fog", true),
+
+  async init() { await this.refresh(); },
+
+  async refresh() {
+    const bgPhoto = await idbGet("bg"), cardPhoto = await idbGet("card");
+    this.page = bgPhoto ? await buildPair(await blobToImage(bgPhoto)) : await defaultPair();
+    this.card = cardPhoto ? await buildPair(await blobToImage(cardPhoto)) : this.page;
+    applyScene();
+  },
+  pair(card) { return card ? this.card : this.page; },
+};
+
+function blobToImage(blob) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img); img.onerror = rej;
+    img.src = URL.createObjectURL(blob);
+  });
+}
+
+async function buildPair(source) {
+  const k = Math.min(1, 1600 / Math.max(source.width, source.height));
+  const w = Math.max(1, Math.round(source.width * k)), h = Math.max(1, Math.round(source.height * k));
+  const sharp = document.createElement("canvas"); sharp.width = w; sharp.height = h;
+  sharp.getContext("2d").drawImage(source, 0, 0, w, h);
+  const fog = document.createElement("canvas"); fog.width = w; fog.height = h;
+  const fx = fog.getContext("2d");
+  fx.filter = "blur(26px)";
+  // draw oversized so the blur has no transparent fringe
+  fx.drawImage(sharp, -40, -40, w + 80, h + 80);
+  fx.filter = "none";
+  const dark = luminance(fog) < 0.56;
+  return { sharp: await toURL(sharp), fog: await toURL(fog), dark };
+}
+function toURL(canvas) {
+  return new Promise(res => canvas.toBlob(b => res(URL.createObjectURL(b)), "image/jpeg", 0.85));
+}
+function luminance(canvas) {
+  const c = document.createElement("canvas"); c.width = c.height = 1;
+  const x = c.getContext("2d");
+  x.drawImage(canvas, 0, 0, 1, 1);
+  const [r, g, b] = x.getImageData(0, 0, 1, 1).data;
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
+/// the built-in scene: an evening window — a dusk gradient and a few
+/// far-away lights, so wiping the fog visibly uncovers something.
+async function defaultPair() {
+  const w = 900, h = 1350;
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const x = c.getContext("2d");
+  const g = x.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, "rgb(84,102,120)"); g.addColorStop(1, "rgb(31,38,54)");
+  x.fillStyle = g; x.fillRect(0, 0, w, h);
+  const rng = seedRng("default-scene");
+  for (let i = 0; i < 16; i++) {
+    const lx = rin(rng, 0, w), ly = rin(rng, h * 0.3, h), r = rin(rng, 5, 24);
+    const warm = rng() < 0.72;
+    const col = warm ? "242,199,128" : "173,204,242";
+    for (const [scale, alpha] of [[2.8, 0.08], [1.7, 0.2], [1.0, 0.6]]) {
+      x.fillStyle = `rgba(${col},${alpha})`;
+      x.beginPath(); x.ellipse(lx, ly, r * scale, r * scale, 0, 0, 7); x.fill();
+    }
+  }
+  return buildPair(c);
+}
+
+// frosted-glass grain: a small noise tile, repeated
+const grainURL = (() => {
+  const n = 96, c = document.createElement("canvas"); c.width = c.height = n;
+  const x = c.getContext("2d"), img = x.createImageData(n, n), rng = seedRng("grain");
+  for (let i = 0; i < n * n; i++) {
+    const v = Math.round(rin(rng, 70, 185));
+    img.data.set([v, v, v, 255], i * 4);
+  }
+  x.putImageData(img, 0, 0);
+  return c.toDataURL();
+})();
+
+// uneven fog thickness for light scenes: tiny noise smeared into patches
+const mottles = {};
+function mottleURL(seed) {
+  if (mottles[seed]) return mottles[seed];
+  const n = 9, s = document.createElement("canvas"); s.width = s.height = n;
+  const sx = s.getContext("2d"), img = sx.createImageData(n, n), rng = seedRng(seed + "-mottle");
+  for (let i = 0; i < n * n; i++) { const v = Math.round(rin(rng, 150, 255)); img.data.set([v, v, v, 255], i * 4); }
+  sx.putImageData(img, 0, 0);
+  const c = document.createElement("canvas"); c.width = c.height = n * 20;
+  const x = c.getContext("2d");
+  x.filter = "blur(14px)"; x.imageSmoothingEnabled = true;
+  x.drawImage(s, -20, -20, c.width + 40, c.height + 40);
+  return (mottles[seed] = c.toDataURL());
+}
+
+/// droplets condensed on the fog: little lenses, dark above, bright below,
+/// a sliver of highlight top-left
+function paintDrops(ctx, wpx, hpx, dpr, seed, count = 12) {
+  const rng = seedRng(seed);
+  ctx.save(); ctx.scale(dpr, dpr);
+  const w = wpx / dpr, h = hpx / dpr;
+  for (let i = 0; i < count; i++) {
+    const x = rin(rng, 10, Math.max(11, w - 10)), y = rin(rng, 10, Math.max(11, h - 10));
+    const r = 1.4 + 3.6 * Math.pow(rng(), 2.4);
+    const top = y - r * 1.08, bot = y + r * 1.08;
+    const g = ctx.createLinearGradient(x, top, x, bot);
+    g.addColorStop(0, "rgba(0,0,0,0.22)"); g.addColorStop(0.5, "rgba(0,0,0,0.05)"); g.addColorStop(1, "rgba(255,255,255,0.5)");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(x, y, r, r * 1.08, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.10)"; ctx.lineWidth = 0.5; ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y, r * 0.62, 200 * Math.PI / 180, 250 * Math.PI / 180);
+    ctx.strokeStyle = "rgba(255,255,255,0.75)"; ctx.lineWidth = Math.max(0.6, r * 0.2); ctx.lineCap = "round"; ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// fog layers for a DOM element: scene-fog background + breath/grain(/mottle)
+function fogLayers(el, pair, seed, drops, w, h) {
+  el.innerHTML = "";
+  el.style.backgroundImage = `url(${pair.fog})`;
+  const add = (css) => { const d = document.createElement("div"); d.className = "layer"; Object.assign(d.style, css); el.appendChild(d); return d; };
+  if (pair.dark) {
+    add({ background: "rgba(255,255,255,0.18)" });
+    add({ backgroundImage: `url(${grainURL})`, backgroundSize: "48px 48px", mixBlendMode: "overlay", opacity: 0.42 });
+  } else {
+    add({ backgroundImage: `url(${mottleURL(seed)})`, backgroundSize: "cover", mixBlendMode: "multiply", opacity: 0.18 });
+    add({ backgroundImage: `url(${grainURL})`, backgroundSize: "48px 48px", mixBlendMode: "multiply", opacity: 0.12 });
+    add({ background: "radial-gradient(circle, rgba(0,0,0,0) 20%, rgba(0,0,0,0.06) 100%)", mixBlendMode: "multiply" });
+    add({ background: "rgba(255,255,255,0.06)" });
+  }
+  if (drops) {
+    const c = document.createElement("canvas");
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    c.width = w * dpr; c.height = h * dpr;
+    Object.assign(c.style, { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" });
+    paintDrops(c.getContext("2d"), c.width, c.height, dpr, seed);
+    el.appendChild(c);
+  }
+}
+
+// minimal IndexedDB for the two local photos (never uploaded anywhere)
+function idb() {
+  return new Promise((res, rej) => {
+    try {
+      const r = indexedDB.open("lubdub", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("scenes");
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    } catch (e) { rej(e); }
+  });
+}
+async function idbGet(k) { try { const db = await idb(); return await new Promise(res => { const q = db.transaction("scenes").objectStore("scenes").get(k); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); }); } catch { return null; } }
+async function idbSet(k, v) { try { const db = await idb(); const tx = db.transaction("scenes", "readwrite"); if (v === null) tx.objectStore("scenes").delete(k); else tx.objectStore("scenes").put(v, k); await new Promise(res => tx.oncomplete = res); } catch {} }
+
+function applyScene() {
+  const p = Scene.page, c = Scene.card;
+  document.documentElement.style.setProperty("--ink", p.dark ? "rgba(247,247,247,0.97)" : "rgb(38,43,54)");
+  document.documentElement.style.setProperty("--soft", p.dark ? "rgba(247,247,247,0.62)" : "rgba(38,43,54,0.62)");
+  const bg = $("#bg");
+  if (Scene.bgFog) fogLayers(bg, p, "window", false, innerWidth, innerHeight);
+  else { bg.innerHTML = ""; bg.style.backgroundImage = `url(${p.sharp})`; }
+  const veil = document.createElement("div"); veil.className = "layer";
+  veil.style.background = `rgba(${p.dark ? "0,0,0" : "255,255,255"},${Scene.bgVeil * 0.85})`;
+  bg.appendChild(veil);
+  const wb = $("#write");
+  wb.style.backgroundImage = `url(${p.sharp})`;
+  wb.querySelector(".press").style.background = p.dark ? "rgba(0,0,0,0.16)" : "rgba(255,255,255,0.16)";
+  wb.style.color = p.dark ? "rgba(247,247,247,0.97)" : "rgb(38,43,54)";
+  document.querySelectorAll(".card").forEach(el => el._paint && el._paint());
+}
+
+// ======================================================================
+// models + API (Letters.swift)
+const api = {
+  letters: [], total: 0, loaded: false, loading: false, error: null, skew: 0,
+  now() { return Date.now() / 1000 + this.skew; },
+  base() {
+    let s = (store.get("server", "") || "").trim();
+    if (!s) return location.origin && location.protocol.startsWith("http") ? "" : null;
+    if (!s.includes("://")) s = "https://" + s;
+    return s.replace(/\/+$/, "");
+  },
+  headers() {
+    const t = store.get("token", "");
+    return t ? { "Authorization": "Bearer " + t } : {};
+  },
+  async reload() {
+    if (this.loading) return;
+    const base = this.base();
+    if (base === null) { this.error = "no server yet — set the address in settings"; this.loaded = true; Wall.render(); return; }
+    this.loading = true;
+    try {
+      const r = await fetch(base + "/letters?limit=100&offset=0", { headers: this.headers(), cache: "no-store" });
+      const j = await r.json().catch(() => null);
+      if (r.status !== 200 || !j) {
+        this.error = j && j.error ? "the server said: " + j.error : "the server answered " + r.status;
+      } else {
+        if (typeof j.now === "number") this.skew = j.now - Date.now() / 1000;
+        this.letters = (j.letters || []).map(normalize);
+        this.total = j.total || this.letters.length;
+        this.error = null;
+      }
+    } catch { this.error = "couldn't reach the server"; }
+    this.loading = false; this.loaded = true;
+    Wall.render();
+  },
+  async create(title, content, body) {
+    const base = this.base();
+    if (base === null) { this.error = "no server yet — set the address in settings"; return false; }
+    try {
+      const r = await fetch(base + "/letters", {
+        method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" },
+        body: JSON.stringify({ content, ...(title ? { title } : {}), ...body }),
+      });
+      const o = await r.json().catch(() => null);
+      if (r.status !== 200 || !o || o.ok === false) {
+        this.error = (o && o.error) || `the letter didn't go in (${r.status})`;
+        return false;
+      }
+      this.error = null;
+      this.letters.unshift(normalize({ id: o.id, title, content, ts: Date.now() / 1000, reveal_at: o.reveal_at, status: "locked" }));
+      this.reload();
+      return true;
+    } catch { this.error = "couldn't reach the server — the letter didn't go in"; return false; }
+  },
+  async remove(id) {
+    const base = this.base();
+    if (base === null) return false;
+    try {
+      const r = await fetch(base + "/letters/" + id, { method: "DELETE", headers: this.headers() });
+      const o = await r.json().catch(() => null);
+      if (r.status !== 200 && r.status !== 404 || (o && o.ok === false)) {
+        this.error = (o && o.error) || `couldn't take it back (${r.status})`; toast(this.error); return false;
+      }
+    } catch { this.error = "couldn't reach the server — nothing was taken back"; toast(this.error); return false; }
+    this.letters = this.letters.filter(l => l.id !== id);
+    this.total = Math.max(0, this.total - 1);
+    Wall.render();
+    return true;
+  },
+};
+function normalize(d) {
+  return {
+    id: d.id, title: d.title || "", content: d.content || "",
+    ts: d.ts || 0, revealAt: d.reveal_at || 0, status: d.status || "locked",
+    revealedAt: d.revealed_at, tlock: !!d.tlock,
+    replies: (d.replies || []).slice().sort((a, b) => a.ts - b.ts),
+    get locked() { return this.status !== "revealed"; },
+  };
+}
+
+// formatting (LetterFormat)
+const fmt = {
+  when(t) {
+    const d = new Date(t * 1000), sameYear = d.getFullYear() === new Date().getFullYear();
+    return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", ...(sameYear ? {} : { year: "numeric" }) });
+  },
+  // the countdown is not decoration (see the README's field notes): an
+  // absolute time alone gets misread — by agents, and by humans too
+  countdown(secs) {
+    if (secs <= 30) return "any moment now";
+    const m = Math.floor(secs / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
+    if (d > 0) return h % 24 > 0 ? `in ${d}d ${h % 24}h` : `in ${d}d`;
+    if (h > 0) return m % 60 > 0 ? `in ${h}h ${m % 60}m` : `in ${h}h`;
+    return `in ${Math.max(1, m)}m`;
+  },
+  lockedFor(l) {
+    const m = Math.floor((l.revealAt - l.ts) / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
+    if (d > 0) return `locked ${d}d`;
+    if (h > 0) return `locked ${h}h`;
+    return `locked ${Math.max(1, m)}m`;
+  },
+};
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.style.opacity = 1;
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.opacity = 0, 3200);
+}
+
+// ======================================================================
+// the wheel's own motion (WheelSpin) — frame-stepped springs
+function spring(response, damping) {
+  const k = Math.pow(2 * Math.PI / response, 2), c = 2 * damping * Math.sqrt(k);
+  return { target: 0, vel: 0, live: false, k, c,
+    step(x, dt) {
+      if (!this.live) return x;
+      for (let i = 0; i < 2; i++) {  // half-step integration, steadier
+        const h = dt / 2;
+        this.vel += (-this.k * (x - this.target) - this.c * this.vel) * h;
+        x += this.vel * h;
+      }
+      if (Math.abs(x - this.target) < 0.0015 && Math.abs(this.vel) < 0.02) { x = this.target; this.vel = 0; this.live = false; }
+      return x;
+    } };
+}
+const Spin = {
+  pos: 0, fan: 0, open: false,
+  spinS: spring(0.5, 0.82), fanS: spring(0.62, 0.74),
+  raf: null, last: 0,
+  set(p) { this.pos = p; Wall.layout(); },
+  stop() { this.spinS.live = false; this.spinS.vel = 0; },
+  glide(to, vel = 0) {
+    if (REDUCED) { this.pos = to; Wall.layout(); return; }
+    this.spinS.target = to; this.spinS.vel = vel; this.spinS.live = true; this.run();
+  },
+  setOpen(o) {
+    if (o === this.open) return;
+    this.open = o;
+    if (REDUCED) { this.fan = o ? 1 : 0; Wall.layout(); return; }
+    this.fanS.target = o ? 1 : 0; this.fanS.live = true; this.run();
+  },
+  run() {
+    if (this.raf) return;
+    this.last = performance.now();
+    const tick = (now) => {
+      let dt = Math.min(Math.max((now - this.last) / 1000, 0), 1 / 30);
+      this.last = now;
+      if (this.spinS.live) this.pos = this.spinS.step(this.pos, dt);
+      if (this.fanS.live) this.fan = this.fanS.step(this.fan, dt);
+      Wall.layout();
+      if (this.spinS.live || this.fanS.live) this.raf = requestAnimationFrame(tick);
+      else this.raf = null;
+    };
+    this.raf = requestAnimationFrame(tick);
+  },
+};
+
+// ======================================================================
+// the wall (LetterWall)
+const Wall = {
+  els: new Map(),  // id -> card element
+
+  render() {
+    $("#empty").textContent = api.letters.length ? "" :
+      (api.error || (api.loaded ? "No letters yet.\nWrite one, lock it — it develops when you chose." : ""));
+    if (api.error && api.letters.length) toast(api.error);
+    const live = new Set(api.letters.map(l => l.id));
+    for (const [id, el] of this.els) if (!live.has(id)) { el.remove(); this.els.delete(id); }
+    api.letters.forEach(l => {
+      let el = this.els.get(l.id);
+      if (!el) { el = makeCard(l); this.els.set(l.id, el); $("#wall").appendChild(el); }
+      el._update(l);
+    });
+    Spin.pos = Math.min(Spin.pos, Math.max(0, api.letters.length - 1));
+    this.layout();
+  },
+
+  /// pile <-> arc: every in-between frame interpolates on `fan`, so the
+  /// cards deal out of the pile along the arc
+  layout() {
+    const w = innerWidth, h = innerHeight;
+    const fan = Spin.fan, pile = Math.max(0, 1 - fan);
+    const midX = w * (0.47 + 0.03 * pile), midY = h * 0.47;
+    const cx = midX - RADIUS;
+    const pos = Spin.pos, top = Math.round(pos);
+    api.letters.forEach((l, i) => {
+      const el = this.els.get(l.id);
+      if (!el) return;
+      const d = i - pos, a = Math.abs(d);
+      if (a >= 3.4) { el.style.display = "none"; return; }
+      el.style.display = "";
+      const th = d * STEP * fan;
+      const f = Math.max(0, 1 - a);
+      const lift = 0.08 * f * f * (3 - 2 * f);
+      const arcScale = 1 - Math.min(a, 2.5) * 0.05 + lift;
+      const pileScale = 1 - Math.min(a, 3) * 0.045;
+      const scale = pileScale * pile + arcScale * Math.min(fan, 1.2);
+      const tilt = i === top ? 0 : cardTilt(l.id);
+      const x = cx + RADIUS * Math.cos(th), y = midY + RADIUS * Math.sin(th) - Math.min(a, 3) * 11 * pile;
+      el.style.transform =
+        `translate(${x - CARD_W / 2}px, ${y - CARD_H / 2}px) rotate(${th + tilt * pile * Math.PI / 180}rad) scale(${scale})`;
+      el.style.zIndex = Math.round((10 - a) * 10);
+    });
+  },
+};
+const tilts = {};
+function cardTilt(id) {
+  if (!(id in tilts)) { const r = seedRng(id + "-tilt"); tilts[id] = rin(r, -8, 8); }
+  return tilts[id];
+}
+
+function makeCard(letter) {
+  const el = document.createElement("div");
+  el.className = "card rim";
+  el.dataset.id = letter.id;
+  el.innerHTML = `
+    <div class="scene"></div><div class="layer press"></div>
+    <div class="face face-fog"><div class="foglayers scene layer"></div>
+      <div class="text"><div class="title fog-title" style="display:none"></div>
+        <div class="foot" style="opacity:.85"><div class="seal" style="width:24px;height:24px;display:none"><span class="heart" style="font-size:8px">♥</span></div>
+        <span class="right fogline" style="color:var(--ink);opacity:.7"></span></div></div></div>
+    <div class="face face-clear" style="display:none"><div class="text">
+      <div class="title" style="display:none"></div><div class="body"></div>
+      <div class="foot"><span class="replies" style="display:none"></span><span class="right when"></span></div></div></div>`;
+  let data = letter;
+  el._paint = () => {
+    const pair = Scene.pair(true);
+    el.querySelector(".scene").style.backgroundImage = `url(${pair.sharp})`;
+    el.querySelector(".press").style.background =
+      `rgba(${pair.dark ? "0,0,0" : "255,255,255"},${0.16 + Scene.cardVeil * 0.5})`;
+    fogLayers(el.querySelector(".foglayers"), pair, data.id, true, CARD_W, CARD_H);
+  };
+  el._update = (l) => {
+    data = l;
+    const clear = !l.locked && wiped.has(l.id);
+    el.querySelector(".face-fog").style.display = clear ? "none" : "";
+    el.querySelector(".face-clear").style.display = clear ? "" : "none";
+    // fogged face: title only once it may travel; locked or due is told
+    // apart by one thing only — the wax seal. the fog is the interface.
+    const ft = el.querySelector(".fog-title");
+    ft.style.display = (!l.locked && l.title) ? "" : "none"; ft.textContent = l.title;
+    el.querySelector(".seal").style.display = l.locked ? "" : "none";
+    el._tick = () => {
+      const line = el.querySelector(".fogline");
+      if (l.locked) {
+        const left = l.revealAt - api.now();
+        line.textContent = `${fmt.when(l.revealAt)} · ${left > 0 ? fmt.countdown(left) : "any moment now"}`;
+        if (left <= 0) dueAskAgain();
+      } else line.textContent = fmt.when(l.revealedAt || l.revealAt);
+    };
+    el._tick();
+    // clear face: a page of a letter
+    const ct = el.querySelector(".face-clear .title");
+    ct.style.display = l.title ? "" : "none"; ct.textContent = l.title;
+    const bd = el.querySelector(".face-clear .body");
+    bd.textContent = l.content; bd.style.webkitLineClamp = l.title ? 4 : 5;
+    const rp = el.querySelector(".replies");
+    rp.style.display = l.replies.length ? "" : "none";
+    rp.textContent = l.replies.length === 1 ? "1 reply" : `${l.replies.length} replies`;
+    el.querySelector(".face-clear .when").textContent = fmt.when(l.revealedAt || l.revealAt);
+    el._paint();
+  };
+  // tap: closed pile fans out; the centered card pulls out; others glide
+  el.addEventListener("click", (e) => {
+    if (el._drag || el._pressed) { el._pressed = false; return; }
+    e.stopPropagation();
+    const i = api.letters.findIndex(x => x.id === data.id);
+    if (!Spin.open) { buzz(); Spin.setOpen(true); }
+    else if (Math.abs(i - Spin.pos) < 0.5) { buzz(); Wipe.show(data); }
+    else Spin.glide(i);
+  });
+  // long-press to retract (locked) or remove (revealed)
+  el.addEventListener("pointerdown", (e) => {
+    el._pressed = false;
+    const x0 = e.clientX, y0 = e.clientY;
+    el._lp = setTimeout(() => { el._pressed = true; buzz(18); askDelete(data); }, 550);
+    const move = (ev) => { if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 10) stop(); };
+    const stop = () => { clearTimeout(el._lp); removeEventListener("pointermove", move); removeEventListener("pointerup", stop); removeEventListener("pointercancel", stop); };
+    addEventListener("pointermove", move); addEventListener("pointerup", stop); addEventListener("pointercancel", stop);
+  });
+  return el;
+}
+function buzz(ms = 8) { try { navigator.vibrate && navigator.vibrate(ms); } catch {} }
+
+let dueTimer = null;
+function dueAskAgain() {  // due but still locked here: the server reveals on its own timer — ask again
+  if (dueTimer) return;
+  dueTimer = setTimeout(() => { dueTimer = null; api.reload(); }, 1500);
+}
+
+// vertical drag = spin the wheel; release keeps the finger's velocity and
+// settles on the nearest card
+(() => {
+  let from = null, lastY = 0, lastT = 0, vel = 0;
+  addEventListener("pointerdown", (e) => {
+    if (e.target.closest(".sheet, .panel, #overlay, #topbtns, #write, .box")) return;
+    from = { pos: Spin.pos, y: e.clientY, moved: false };
+    lastY = e.clientY; lastT = performance.now(); vel = 0;
+  });
+  addEventListener("pointermove", (e) => {
+    if (!from) return;
+    const dy = e.clientY - from.y;
+    if (!from.moved) {
+      if (Math.abs(dy) < 6) return;
+      from.moved = true; from.y = e.clientY; from.pos = Spin.pos;  // don't replay the first 6px in one jump
+      Spin.stop(); Spin.setOpen(true);
+      Wall.els.forEach(el => el._drag = true);
+      return;
+    }
+    const now = performance.now();
+    if (now > lastT) { vel = (e.clientY - lastY) / ((now - lastT) / 1000); lastY = e.clientY; lastT = now; }
+    const top = Math.max(0, api.letters.length - 1);
+    let p = from.pos - (e.clientY - from.y) / PITCH;
+    if (p < 0) p *= 0.35; else if (p > top) p = top + (p - top) * 0.35;  // damped past the ends
+    Spin.set(p);
+  });
+  const end = () => {
+    if (!from) return;
+    const moved = from.moved; from = null;
+    setTimeout(() => Wall.els.forEach(el => el._drag = false), 0);
+    if (!moved) return;
+    const top = Math.max(0, api.letters.length - 1);
+    const v = -vel / PITCH;  // cards per second
+    const target = Math.min(top, Math.max(0, Math.round(Spin.pos + v * 0.22)));
+    Spin.glide(target, Spin.pos < 0 || Spin.pos > top ? 0 : v);
+  };
+  addEventListener("pointerup", end); addEventListener("pointercancel", end);
+  // once fanned out, tapping the empty window closes the pile
+  $("#bg").addEventListener("click", () => { if (Spin.open) { buzz(); Spin.setOpen(false); } });
+})();
+
+// ======================================================================
+// the pulled-out pane (WipeOverlay)
+const Wipe = {
+  letter: null, strokes: [], cells: new Set(), cleared: false,
+  raf: null, fogBase: null, dpr: 1, w: 0, h: 0,
+
+  show(letter) {
+    this.letter = letter;
+    this.strokes = []; this.cells = new Set();
+    this.cleared = !letter.locked && wiped.has(letter.id);
+    this.w = innerWidth - 28;
+    this.h = Math.min(720, innerHeight * 0.75);
+    const pane = $("#pane");
+    pane.style.width = this.w + "px"; pane.style.height = this.h + "px";
+
+    const page = $("#pane .page");
+    page.classList.toggle("fogged", !this.cleared);
+    page.innerHTML = "";
+    // a locked letter puts nothing under the fog
+    if (!letter.locked) {
+      if (letter.title) { const t = document.createElement("h2"); t.textContent = letter.title; page.appendChild(t); }
+      const b = document.createElement("div"); b.className = "letter-body"; b.textContent = letter.content; page.appendChild(b);
+      const s = document.createElement("div"); s.className = "stamp"; s.textContent = fmt.when(letter.revealedAt || letter.revealAt); page.appendChild(s);
+      for (const r of letter.replies) {
+        page.appendChild(document.createElement("hr"));
+        const rb = document.createElement("div"); rb.className = "reply-body"; rb.textContent = r.content; page.appendChild(rb);
+        const rs = document.createElement("div"); rs.className = "reply-stamp"; rs.textContent = `— a reply · ${fmt.when(r.ts)}`; page.appendChild(rs);
+      }
+    }
+    const pair = Scene.pair(true);
+    page.style.background = `linear-gradient(rgba(${pair.dark ? "0,0,0" : "255,255,255"},${0.16 + Scene.cardVeil * 0.5}) 0 0), url(${pair.sharp}) center/cover`;
+
+    this.buildFog();
+    $("#fogpane").style.display = this.cleared ? "none" : "";
+    $("#notyet").classList.remove("on");
+
+    const ov = $("#overlay"), wrap = $("#pane-wrap");
+    ov.classList.add("on");
+    // grows out of the arc's centered card
+    wrap.style.transition = "none";
+    wrap.style.transform = `translate(${-innerWidth * 0.03}px, ${-innerHeight * 0.03}px) scale(${CARD_W / this.w})`;
+    wrap.style.opacity = 0;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      wrap.style.transition = REDUCED ? "none" : "transform .46s cubic-bezier(.25,1.1,.35,1), opacity .3s";
+      wrap.style.transform = "translate(0,0) scale(1)";
+      wrap.style.opacity = 1;
+      $("#overlay .dim").style.opacity = 1;
+    }));
+    this.animate();
+  },
+
+  buildFog() {
+    this.dpr = Math.min(2, devicePixelRatio || 1);
+    const c = $("#fogpane");
+    c.width = this.w * this.dpr; c.height = this.h * this.dpr;
+    c.style.width = this.w + "px"; c.style.height = this.h + "px";
+    // the static fog composite, built once per open
+    const base = document.createElement("canvas");
+    base.width = c.width; base.height = c.height;
+    const x = base.getContext("2d");
+    const pair = Scene.pair(true);
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.max(base.width / img.width, base.height / img.height);
+      x.drawImage(img, (base.width - img.width * k) / 2, (base.height - img.height * k) / 2, img.width * k, img.height * k);
+      if (pair.dark) {
+        x.fillStyle = "rgba(255,255,255,0.18)"; x.fillRect(0, 0, base.width, base.height);
+        const g = new Image();
+        g.onload = () => {
+          x.globalCompositeOperation = "overlay"; x.globalAlpha = 0.42;
+          for (let gy = 0; gy < base.height; gy += 96 * this.dpr) for (let gx = 0; gx < base.width; gx += 96 * this.dpr)
+            x.drawImage(g, gx, gy, 96 * this.dpr, 96 * this.dpr);
+          x.globalCompositeOperation = "source-over"; x.globalAlpha = 1;
+          paintDrops(x, base.width, base.height, this.dpr, this.letter.id + "-big");
+          this.fogBase = base; this.draw();
+        };
+        g.src = grainURL;
+      } else {
+        const m = new Image();
+        m.onload = () => {
+          x.globalCompositeOperation = "multiply"; x.globalAlpha = 0.18;
+          x.drawImage(m, 0, 0, base.width, base.height);
+          x.globalAlpha = 1; x.globalCompositeOperation = "source-over";
+          x.fillStyle = "rgba(255,255,255,0.06)"; x.fillRect(0, 0, base.width, base.height);
+          paintDrops(x, base.width, base.height, this.dpr, this.letter.id + "-big");
+          this.fogBase = base; this.draw();
+        };
+        m.src = mottleURL(this.letter.id + "-big");
+      }
+    };
+    img.src = pair.fog;
+    this.mask = document.createElement("canvas");
+    this.mask.width = c.width; this.mask.height = c.height;
+  },
+
+  /// strokes erase the fog through a blurred mask (soft edges). locked: a
+  /// stroke only thins the fog (70%) and heals after a hold; developed: it
+  /// cuts clean and stays.
+  draw() {
+    if (!this.fogBase) return;
+    const c = $("#fogpane"), ctx = c.getContext("2d");
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.drawImage(this.fogBase, 0, 0);
+    const mx = this.mask.getContext("2d");
+    mx.clearRect(0, 0, this.mask.width, this.mask.height);
+    mx.save(); mx.scale(this.dpr, this.dpr);
+    mx.filter = "blur(5px)";
+    const now = performance.now() / 1000;
+    let anyLive = false;
+    for (const s of this.strokes) {
+      const age = now - s.last;
+      const k = this.letter.locked
+        ? (age < REFOG_HOLD ? 1 : Math.max(0, 1 - (age - REFOG_HOLD) / REFOG_FADE)) * 0.7
+        : 1;
+      if (k <= 0.01) continue;
+      if (this.letter.locked) anyLive = true;
+      mx.strokeStyle = `rgba(255,255,255,${k})`;
+      mx.lineWidth = BRUSH; mx.lineCap = mx.lineJoin = "round";
+      mx.beginPath();
+      if (s.pts.length === 1) { mx.moveTo(s.pts[0].x, s.pts[0].y); mx.lineTo(s.pts[0].x + 0.1, s.pts[0].y); }
+      else { mx.moveTo(s.pts[0].x, s.pts[0].y); for (const p of s.pts.slice(1)) mx.lineTo(p.x, p.y); }
+      mx.stroke();
+      if (s.drip) {  // where the finger lifted, a run of water slides down
+        const run = Math.min(s.drip.len, (now - s.drip.start) * 46);
+        if (run < s.drip.len) anyLive = true;
+        mx.strokeStyle = `rgba(255,255,255,${k})`; mx.lineWidth = 6;
+        mx.beginPath(); mx.moveTo(s.drip.x, s.drip.y); mx.lineTo(s.drip.x, s.drip.y + run); mx.stroke();
+        mx.fillStyle = `rgba(255,255,255,${k})`;
+        mx.beginPath(); mx.ellipse(s.drip.x, s.drip.y + run, 5, 6.5, 0, 0, 7); mx.fill();
+      }
+    }
+    mx.restore();
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.drawImage(this.mask, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+    return anyLive;
+  },
+
+  animate() {
+    if (this.raf) return;
+    const loop = () => {
+      const live = this.draw();
+      this.raf = (live || this._touching) ? requestAnimationFrame(loop) : null;
+    };
+    this.raf = requestAnimationFrame(loop);
+  },
+
+  touch(x, y, first) {
+    const now = performance.now() / 1000;
+    if (first || !this.strokes.length) { this.strokes.push({ pts: [{ x, y }], last: now, drip: null }); buzz(6); }
+    else { const s = this.strokes[this.strokes.length - 1]; s.pts.push({ x, y }); s.last = now; }
+    if (this.letter.locked) return;
+    const cw = this.w / COLS, ch = this.h / ROWS, r = BRUSH / 2;
+    const x0 = Math.max(0, Math.floor((x - r) / cw)), x1 = Math.min(COLS - 1, Math.floor((x + r) / cw));
+    const y0 = Math.max(0, Math.floor((y - r) / ch)), y1 = Math.min(ROWS - 1, Math.floor((y + r) / ch));
+    for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) this.cells.add(cy * COLS + cx);
+  },
+
+  lift() {
+    if (!this.strokes.length) return;
+    if (this.letter.locked) {
+      $("#notyet").classList.add("on"); buzz(25);
+      setTimeout(() => {
+        $("#notyet").classList.remove("on");
+        const cut = performance.now() / 1000 - REFOG;
+        this.strokes = this.strokes.filter(s => s.last >= cut);
+      }, 1600);
+      return;
+    }
+    const s = this.strokes[this.strokes.length - 1];
+    const low = s.pts.reduce((a, b) => (b.y > a.y ? b : a), s.pts[0]);
+    const rng = seedRng(this.letter.id + s.pts.length);
+    s.drip = { x: low.x, y: low.y + BRUSH * 0.3, start: performance.now() / 1000, len: rin(rng, 40, 120) };
+    this.animate();
+    if (this.cells.size / (COLS * ROWS) >= CLEAR_FRAC) {
+      buzz(20);
+      this.cleared = true;
+      markWiped(this.letter.id);
+      const c = $("#fogpane");
+      c.style.transition = REDUCED ? "none" : "opacity 1.4s ease-out";
+      c.style.opacity = 0;
+      setTimeout(() => { c.style.display = "none"; c.style.transition = "none"; c.style.opacity = 1; $("#pane .page").classList.remove("fogged"); }, REDUCED ? 0 : 1400);
+      const card = Wall.els.get(this.letter.id);
+      if (card) card._update(this.letter);
+    }
+  },
+
+  close() {
+    const wrap = $("#pane-wrap");
+    wrap.style.transition = REDUCED ? "none" : "transform .22s ease-in, opacity .22s ease-in";
+    wrap.style.transform = `scale(${CARD_W / this.w})`;
+    wrap.style.opacity = 0;
+    $("#overlay .dim").style.opacity = 0;
+    setTimeout(() => { $("#overlay").classList.remove("on"); this.letter = null; if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; } }, REDUCED ? 0 : 230);
+  },
+};
+
+(() => {  // the pane's wipe gesture; once the fog is gone, a tap anywhere puts the card back
+  const c = $("#fogpane");
+  c.addEventListener("pointerdown", (e) => {
+    e.stopPropagation();
+    c.setPointerCapture(e.pointerId);
+    Wipe._touching = true;
+    const r = c.getBoundingClientRect();
+    Wipe.touch(e.clientX - r.left, e.clientY - r.top, true);
+    Wipe.animate();
+  });
+  c.addEventListener("pointermove", (e) => {
+    if (!Wipe._touching) return;
+    const r = c.getBoundingClientRect();
+    Wipe.touch(e.clientX - r.left, e.clientY - r.top, false);
+  });
+  const up = (e) => { if (!Wipe._touching) return; Wipe._touching = false; Wipe.lift(); };
+  c.addEventListener("pointerup", up); c.addEventListener("pointercancel", up);
+  $("#overlay").addEventListener("click", (e) => {
+    if (e.target.closest("#fogpane")) return;
+    if (e.target.closest("#pane") && !Wipe.cleared) return;
+    Wipe.close();
+  });
+  $("#pane-close").addEventListener("click", (e) => { e.stopPropagation(); Wipe.close(); });
+})();
+
+// ======================================================================
+// retract / delete
+function askDelete(l) {
+  const box = $("#confirm");
+  box.querySelector(".q").textContent = l.locked ? "Take it back?" : "Remove this letter?";
+  box.querySelector(".m").textContent = l.locked
+    ? "The agent will be told something was taken back — never what."
+    : "It only leaves the wall. What's been read can't be unread.";
+  $("#cf-yes").textContent = l.locked ? "Retract" : "Remove";
+  box.classList.add("on");
+  $("#cf-yes").onclick = () => { box.classList.remove("on"); api.remove(l.id); };
+  $("#cf-no").onclick = () => box.classList.remove("on");
+}
+
+// ======================================================================
+// composer (Composer.swift)
+const QUICK = [["1h", "1 hour"], ["3h", "3 hours"], ["12h", "12 hours"], ["1d", "1 day"], ["3d", "3 days"], ["7d", "7 days"]];
+const Comp = {
+  byDuration: true, lockFor: "3h", posting: false,
+  open() {
+    api.error = null; $("#c-err").textContent = "";
+    $("#c-title").value = ""; $("#c-text").value = "";
+    this.byDuration = true; this.lockFor = "3h";
+    const at = new Date(Date.now() + 86400e3); at.setSeconds(0, 0);
+    $("#c-when").value = new Date(at - at.getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
+    this.sync();
+    $("#composer").classList.add("on");
+    setTimeout(() => $("#c-text").focus(), 80);
+  },
+  revealDate() {
+    if (this.byDuration) {
+      const n = parseFloat(this.lockFor), u = this.lockFor.slice(-1);
+      return Date.now() / 1000 + n * (u === "m" ? 60 : u === "h" ? 3600 : 86400);
+    }
+    return new Date($("#c-when").value).getTime() / 1000;
+  },
+  sync() {
+    $("#c-dur").classList.toggle("on", this.byDuration);
+    $("#c-at").classList.toggle("on", !this.byDuration);
+    $("#c-quick").style.display = this.byDuration ? "" : "none";
+    $("#c-when").style.display = this.byDuration ? "none" : "";
+    $("#c-quick").innerHTML = "";
+    for (const [k, label] of QUICK) {
+      const b = document.createElement("button");
+      b.className = "quick" + (this.lockFor === k ? " on" : ""); b.textContent = label;
+      b.onclick = () => { this.lockFor = k; this.sync(); };
+      $("#c-quick").appendChild(b);
+    }
+    const rd = this.revealDate();
+    $("#c-develops").textContent = isNaN(rd) ? "…" : "develops " + fmt.when(rd);
+    const ok = $("#c-text").value.trim() && !this.posting &&
+      (this.byDuration || (!isNaN(rd) && rd - Date.now() / 1000 > 240));
+    $("#c-send").disabled = !ok;
+  },
+  async send() {
+    this.posting = true; this.sync();
+    const body = this.byDuration ? { lock_for: this.lockFor } : { reveal_at: Math.round(this.revealDate()) };
+    const ok = await api.create($("#c-title").value.trim(), $("#c-text").value, body);
+    this.posting = false; this.sync();
+    if (ok) $("#composer").classList.remove("on");
+    else $("#c-err").textContent = api.error || "";
+  },
+};
+$("#write").onclick = () => Comp.open();
+$("#c-cancel").onclick = () => $("#composer").classList.remove("on");
+$("#c-send").onclick = () => Comp.send();
+$("#c-dur").onclick = () => { Comp.byDuration = true; Comp.sync(); };
+$("#c-at").onclick = () => { Comp.byDuration = false; Comp.sync(); };
+$("#c-text").addEventListener("input", () => Comp.sync());
+$("#c-when").addEventListener("input", () => Comp.sync());
+
+// ======================================================================
+// settings
+$("#btn-settings").onclick = () => {
+  $("#s-server").value = store.get("server", "");
+  $("#s-token").value = store.get("token", "");
+  $("#s-author").value = store.get("author", "me");
+  $("#settings").classList.add("on");
+};
+$("#s-done").onclick = () => {
+  store.set("server", $("#s-server").value.trim());
+  store.set("token", $("#s-token").value.trim());
+  store.set("author", $("#s-author").value.trim() || "me");
+  $("#settings").classList.remove("on");
+  api.reload();
+};
+
+// ======================================================================
+// looks panel
+const Looks = {
+  open() {
+    $("#looks").classList.add("on");
+    this.sync();
+  },
+  async sync() {
+    $("#l-bg-default").classList.toggle("on", !(await idbGet("bg")));
+    $("#l-bg-pick").classList.toggle("on", !!(await idbGet("bg")));
+    $("#l-bg-pick").textContent = (await idbGet("bg")) ? "Your photo · change" : "Pick a photo";
+    $("#l-card-default").classList.toggle("on", !(await idbGet("card")));
+    $("#l-card-pick").classList.toggle("on", !!(await idbGet("card")));
+    $("#l-card-pick").textContent = (await idbGet("card")) ? "Your photo · change" : "Pick a photo";
+    $("#l-bgfog").checked = Scene.bgFog;
+    $("#l-bgveil").value = Scene.bgVeil;
+    $("#l-cardveil").value = Scene.cardVeil;
+    document.querySelectorAll("#looks .slider").forEach(s => {
+      s.querySelector(".pct").textContent = Math.round(s.querySelector("input").value / 0.8 * 100) + "%";
+    });
+  },
+};
+$("#btn-looks").onclick = () => Looks.open();
+$("#l-done").onclick = () => $("#looks").classList.remove("on");
+$("#looks").addEventListener("click", (e) => { if (e.target.id === "looks") $("#looks").classList.remove("on"); });
+let pickTarget = "bg";
+$("#l-bg-pick").onclick = () => { pickTarget = "bg"; $("#l-file").click(); };
+$("#l-card-pick").onclick = () => { pickTarget = "card"; $("#l-file").click(); };
+$("#l-bg-default").onclick = async () => { await idbSet("bg", null); await Scene.refresh(); Looks.sync(); };
+$("#l-card-default").onclick = async () => { await idbSet("card", null); await Scene.refresh(); Looks.sync(); };
+$("#l-file").onchange = async (e) => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  await idbSet(pickTarget, f);
+  await Scene.refresh(); Looks.sync();
+};
+$("#l-bgfog").onchange = (e) => { Scene.bgFog = e.target.checked; store.set("bg_fog", Scene.bgFog); applyScene(); };
+$("#l-bgveil").oninput = (e) => { Scene.bgVeil = +e.target.value; store.set("bg_veil", Scene.bgVeil); applyScene(); Looks.sync(); };
+$("#l-cardveil").oninput = (e) => { Scene.cardVeil = +e.target.value; store.set("card_veil", Scene.cardVeil); applyScene(); Looks.sync(); };
+
+// ======================================================================
+// chat-card demo (CardsDemo — fixture data, no server needed)
+$("#btn-demo").onclick = () => {
+  const now = Date.now() / 1000;
+  const locked = normalize({ id: "demo-locked", ts: now - 1500, reveal_at: now + 3 * 3600 + 700, status: "locked" });
+  const revealed = normalize({ id: "demo-revealed", title: "Friday",
+    content: "By the time you read this, the week will have done its worst. I wanted one good thing waiting for you at the end of it, so I hid it here on Monday.",
+    ts: now - 4 * 86400, reveal_at: now - 3600, revealed_at: now - 3600, status: "revealed",
+    replies: [{ id: "r1", ts: now - 3000, content: "It was waiting, and it worked. Monday-you is very good at this." }] });
+  const author = store.get("author", "me");
+  const seal = (still) => `<div class="seal${still ? " still" : ""}" style="width:34px;height:34px"><span class="heart" style="font-size:11px">♥</span></div>`;
+  const lockedCard = (l) => `
+    <div class="chatcard locked-card">${seal(!l.locked)}
+      <div><div class="lk-head">🔒 A LETTER · LOCKED</div>
+      <div class="lk-when">develops ${fmt.when(l.revealAt)}</div>
+      <div class="lk-count">${l.locked ? fmt.countdown(l.revealAt - now) : "developed ›"}</div></div></div>`;
+  $("#demo-body").querySelectorAll(".demo-item").forEach(n => n.remove());
+  const add = (label, html) => {
+    const d = document.createElement("div"); d.className = "demo-item";
+    d.innerHTML = `<div class="demo-label">${label}</div>${html}`;
+    $("#demo-body").appendChild(d);
+  };
+  add("the moment of writing — a locked card, forever", lockedCard(locked));
+  add("the same card once the letter has developed", lockedCard(revealed));
+  add("the moment of the reveal — a second card", `
+    <div class="chatcard"><div class="rv-head">
+      <div class="avatar">${(author[0] || "m").toUpperCase()}</div>
+      <div><div class="rv-name"></div>
+      <div class="rv-meta">${fmt.when(revealed.revealedAt)} · ${fmt.lockedFor(revealed)}</div></div>
+      <span class="rv-env">✉</span></div>
+      <div class="rv-title"></div><div class="rv-body"></div></div>`);
+  add("a reply", `
+    <div class="replyrow"><div class="rule"></div><div>
+      <div class="r-head"><span class="a">a reply</span><span class="t">${fmt.when(revealed.replies[0].ts)}</span></div>
+      <div class="r-body"></div></div></div>`);
+  add("a retracted letter", `<div class="tombstone">a letter was taken back</div>`);
+  // user-controlled strings go in as text, not markup
+  $("#demo-body .rv-name").textContent = author;
+  $("#demo-body .rv-title").textContent = revealed.title;
+  $("#demo-body .rv-body").textContent = revealed.content;
+  $("#demo-body .r-body").textContent = revealed.replies[0].content;
+  $("#demo").classList.add("on");
+};
+$("#d-done").onclick = () => $("#demo").classList.remove("on");
+
+// sheet backdrops close on tap (composer keeps its text — ask nothing, lose nothing)
+for (const id of ["settings", "demo"]) {
+  $("#" + id).addEventListener("click", (e) => { if (e.target.id === id) $("#" + id).classList.remove("on"); });
+}
+
+// ======================================================================
+// boot: no websocket on the open-source server — poll while visible,
+// re-ask when a countdown runs out, reload on returning to the page
+(async () => {
+  await Scene.init();
+  if (!store.get("token", "") && !store.get("server", "")) $("#btn-settings").click();
+  await api.reload();
+  setInterval(() => { if (!document.hidden) api.reload(); }, 45000);
+  setInterval(() => { Wall.els.forEach(el => el._tick && el._tick()); }, 30000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) api.reload(); });
+  addEventListener("resize", () => Wall.layout());
+})();
+</script>
+</body>
+</html>

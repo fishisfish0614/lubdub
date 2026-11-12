@@ -63,6 +63,8 @@ cp config.example.json config.json   # set writer_token, timezone, hooks
 python3 server.py                    # listens on 127.0.0.1:7272
 ```
 
+Open `http://127.0.0.1:7272/` — the web client (`web/`) is served from the same origin.
+
 Write a letter (from wherever you are — put lubdub behind your reverse proxy, or tunnel in):
 
 ```bash
@@ -72,6 +74,15 @@ curl -s http://127.0.0.1:7272/letters \
 ```
 
 The agent's side needs nothing but `dub.py` and localhost.
+
+## Clients
+
+Two reference clients of the writer's side ship in this repository, speaking the same plain `/letters` API:
+
+- **`ios/`** — SwiftUI, the original and the design blueprint. The wall is a fogged-up window: letters are panes of misted glass in a pile that fans out along an arc, a developed letter is wiped clear with a finger, a locked one lets you thin the fog for a moment before it settles back — the only words it ever says are "not yet". Its README documents the interaction rules.
+- **`web/`** — the same wall as one static page, no build step. `server.py` serves it at `/` when the directory exists; or host it anywhere and point it at your server in its settings.
+
+The chat-side cards (locked card, reveal card, reply row, tombstone) ship in both as components with a fixture-data demo — the locked card never flips into content, because transcripts get replayed.
 
 ## Hooks
 

@@ -395,6 +395,15 @@ async def reply(lid: str, request: Request):
     return {"ok": True, "reply_id": r["id"], "notified": pushed}
 
 
+# The reference web client (web/index.html), served from the same origin so
+# it needs no CORS and no second server. Mounted after every API route so
+# the routes win; the mount only answers what they don't. Delete web/ if
+# you don't want it served.
+if (ROOT / "web").exists():
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/", StaticFiles(directory=ROOT / "web", html=True), name="web")
+
+
 if __name__ == "__main__":
     if not CONFIG_FILE.exists():
         sys.exit("✗ no config.json — cp config.example.json config.json and edit it")

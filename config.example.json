@@ -1,0 +1,30 @@
+{
+  "writer_token": "",
+  "bind": "127.0.0.1",
+  "port": 7272,
+  "timezone": "UTC",
+  "min_lock_minutes": 5,
+  "max_lock_days": 365,
+  "max_content": 4000,
+  "max_title": 80,
+  "max_reply": 2000,
+  "when_fmt": "%Y-%m-%d %H:%M",
+  "day_fmt": "%Y-%m-%d",
+  "left_units": {"m": "m", "h": "h", "d": "d"},
+  "title_wrap": " — “{t}”",
+  "dub_cmd": "python3 /opt/lubdub/dub.py",
+  "messages": {
+    "locked": "[lubdub · still locked] A letter was just written for you. You can't see it yet: it develops at {when} ({left} from now), and it will be delivered to you then — no need to wait at the door. To check the time left any time: {dub} list",
+    "revealed": "[lubdub] A letter written on {written} just developed{title}:\n\n{content}\n\nTo write back (the writer's device will ring; you can reply more than once):\n{dub} reply {id} \"...\"",
+    "retracted": "[lubdub] The letter that was going to develop at {when} has been taken back. That's all either of us will ever know about it.",
+    "reply_push_title": "lubdub",
+    "reply_push_body": "a reply arrived{title}: {preview}"
+  },
+  "hooks": {
+    "on_locked": null,
+    "on_revealed": null,
+    "on_retracted": null,
+    "on_reply": null
+  },
+  "tlock": {"enabled": false, "tle_bin": "tle"}
+}

@@ -52,9 +52,9 @@
   }
 
   /* ---- the window ---- */
-  #bg { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-size: cover; background-position: center; }
+  #bg { position: fixed; top: 0; left: 0; width: 100vw; height: calc(100vh + env(safe-area-inset-bottom, 0px)); background-size: cover; background-position: center; }
   #bg .breath, #bg .grain, #bg .veil { position: absolute; inset: 0; pointer-events: none; }
-  #wall { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
+  #wall { position: fixed; top: 0; left: 0; width: 100vw; height: calc(100vh + env(safe-area-inset-bottom, 0px)); }
   #empty {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     text-align: center; padding: 0 40px; color: var(--soft);
@@ -114,7 +114,7 @@
   @media (prefers-reduced-motion: reduce) { .seal .heart { animation: none; } }
 
   /* ---- the pulled-out pane ---- */
-  #overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 30; display: none; }
+  #overlay { position: fixed; top: 0; left: 0; width: 100vw; height: calc(100vh + env(safe-area-inset-bottom, 0px)); z-index: 30; display: none; }
   #overlay.on { display: block; }
   #overlay .dim { position: absolute; inset: 0; background: rgba(0,0,0,0.38); opacity: 0; transition: opacity .3s; }
   #pane-wrap { position: absolute; inset: 0; display: flex; flex-direction: column;
@@ -412,7 +412,15 @@ async function buildPair(source) {
   fx.drawImage(sharp, -40, -40, w + 80, h + 80);
   fx.filter = "none";
   const dark = luminance(fog) < 0.56;
-  return { sharp: await toURL(sharp), fog: await toURL(fog), dark };
+  // the exact color each face ends in at the bottom edge — the document
+  // background wears it, so whatever iOS leaves unpainted matches the scene
+  const edge = (cv, breath) => {
+    const px = cv.getContext("2d").getImageData(Math.floor(w / 2), h - 2, 1, 1).data;
+    const mix = (v) => Math.round(v * (1 - breath) + 255 * breath);
+    return `rgb(${mix(px[0])},${mix(px[1])},${mix(px[2])})`;
+  };
+  return { sharp: await toURL(sharp), fog: await toURL(fog), dark,
+           edgeSharp: edge(sharp, 0), edgeFog: edge(fog, dark ? 0.18 : 0.04) };
 }
 function toURL(canvas) {
   return new Promise(res => canvas.toBlob(b => res(URL.createObjectURL(b)), "image/jpeg", 0.85));
@@ -536,6 +544,7 @@ function applyScene() {
   const p = Scene.page, c = Scene.card;
   document.documentElement.style.setProperty("--ink", p.dark ? "rgba(247,247,247,0.97)" : "rgb(38,43,54)");
   document.documentElement.style.setProperty("--soft", p.dark ? "rgba(247,247,247,0.62)" : "rgba(38,43,54,0.62)");
+  document.documentElement.style.background = Scene.bgFog ? p.edgeFog : p.edgeSharp;
   const bg = $("#bg");
   if (Scene.bgFog) fogLayers(bg, p, "window", false, innerWidth, innerHeight);
   else { bg.innerHTML = ""; bg.style.backgroundImage = `url(${p.sharp})`; }

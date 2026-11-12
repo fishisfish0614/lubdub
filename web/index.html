@@ -45,6 +45,11 @@
   }
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; overflow: hidden; overscroll-behavior: none; background: rgb(31, 38, 54); }
+  /* iOS standalone: 100vh stops at the home indicator and the bottom inset
+     reads 0 — only lvh measures the real screen (the stopover fix) */
+  @media (display-mode: standalone) {
+    html { min-height: min(100lvh, calc(100% + env(safe-area-inset-top))); }
+  }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     touch-action: none;
@@ -52,9 +57,9 @@
   }
 
   /* ---- the window ---- */
-  #bg { position: fixed; top: 0; left: 0; width: 100vw; height: calc(100vh + env(safe-area-inset-bottom, 0px)); background-size: cover; background-position: center; }
+  #bg { position: fixed; top: 0; left: 0; width: 100vw; height: calc(100vh + env(safe-area-inset-bottom, 0px)); height: 100lvh; background-size: cover; background-position: center; }
   #bg .breath, #bg .grain, #bg .veil { position: absolute; inset: 0; pointer-events: none; }
-  #wall { position: fixed; top: 0; left: 0; width: 100vw; height: calc(100vh + env(safe-area-inset-bottom, 0px)); }
+  #wall { position: fixed; top: 0; left: 0; width: 100vw; height: calc(100vh + env(safe-area-inset-bottom, 0px)); height: 100lvh; }
   #empty {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     text-align: center; padding: 0 40px; color: var(--soft);
@@ -114,7 +119,7 @@
   @media (prefers-reduced-motion: reduce) { .seal .heart { animation: none; } }
 
   /* ---- the pulled-out pane ---- */
-  #overlay { position: fixed; top: 0; left: 0; width: 100vw; height: calc(100vh + env(safe-area-inset-bottom, 0px)); z-index: 30; display: none; }
+  #overlay { position: fixed; top: 0; left: 0; width: 100vw; height: calc(100vh + env(safe-area-inset-bottom, 0px)); height: 100lvh; z-index: 30; display: none; }
   #overlay.on { display: block; }
   #overlay .dim { position: absolute; inset: 0; background: rgba(0,0,0,0.38); opacity: 0; transition: opacity .3s; }
   #pane-wrap { position: absolute; inset: 0; display: flex; flex-direction: column;

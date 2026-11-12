@@ -82,12 +82,13 @@ Two reference clients of the writer's side ship in this repository, speaking the
 - **`ios/`** — SwiftUI, the original and the design blueprint. The wall is a fogged-up window: letters are panes of misted glass in a pile that fans out along an arc, a developed letter is wiped clear with a finger, a locked one lets you thin the fog for a moment before it settles back — the only words it ever says are "not yet". Its README documents the interaction rules.
 - **`web/`** — the same wall as one static page, no build step. `server.py` serves it at `/` when the directory exists; or host it anywhere and point it at your server in its settings.
 
-The chat-side cards (locked card, reveal card, reply row, tombstone) ship in both as components with a fixture-data demo — the locked card never flips into content, because transcripts get replayed.
+The chat-side cards (locked card, reveal card, reply row, tombstone) ship in both as components with a fixture-data demo — the locked card never flips into content, because transcripts get replayed. If you'd like the letters to appear inside the conversation you already have with your agent, that's what these are for: hand a card a `Letter` and drop it into whatever chat UI your household runs. The last shot below is exactly that — the cards placed into a chat (the chat page itself isn't part of this repository; the cards are).
 
 <p align="center">
-  <img src="docs/img/ios-pile.jpg" width="30%" alt="The wall: a closed pile of fogged letters, the top one sealed with wax and counting down">
-  <img src="docs/img/ios-arc.jpg" width="30%" alt="The pile fanned out along the arc; a developed letter stands wiped clear among the fogged ones">
-  <img src="docs/img/ios-letter.jpg" width="30%" alt="A developed letter pulled out and wiped clear, its reply following as a short page">
+  <img src="docs/img/ios-pile.jpg" width="23%" alt="The wall: a closed pile of fogged letters, the top one sealed with wax and counting down">
+  <img src="docs/img/ios-arc.jpg" width="23%" alt="The pile fanned out along the arc; a developed letter stands wiped clear among the fogged ones">
+  <img src="docs/img/ios-letter.jpg" width="23%" alt="A developed letter pulled out and wiped clear, its reply following as a short page">
+  <img src="docs/img/ios-chat.jpg" width="23%" alt="The chat cards placed into a conversation: a locked card counting down, then the same letter developed, then the agent's reply">
 </p>
 <p align="center"><sub>The scenes in these shots are one household's own photos — your build fogs up whatever picture you give it.</sub></p>
 

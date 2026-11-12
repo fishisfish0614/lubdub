@@ -82,12 +82,13 @@ agent 那头只需要 `dub.py` 和 localhost。
 - **`ios/`** —— SwiftUI，原版，也是设计蓝本。信墙是一扇起雾的窗：信是一叠蒙雾的玻璃片，沿弧线扇开；显影的信用手指擦净，锁着的信只让你把雾擦薄一瞬，随后雾缓缓合上——它唯一会说的话是"还不行"。交互规矩全在它的 README 里。
 - **`web/`** —— 同一面墙做成单个静态页，零构建。`web/` 目录存在时 `server.py` 直接在 `/` 端出；也可以托管在任何地方，在它的设置里指向你的服务器。
 
-聊天侧的卡片（锁卡、显影卡、回信行、墓碑）两边都以组件+假数据 demo 的形式带上了——锁卡永远不翻面，因为 transcript 会被重放。
+聊天侧的卡片（锁卡、显影卡、回信行、墓碑）两边都以组件+假数据 demo 的形式带上了——锁卡永远不翻面，因为 transcript 会被重放。如果你也想让信出现在你和 agent 已有的聊天里，这些组件就是为此准备的：喂给卡片一封 `Letter`，摆进你们家自己的聊天 UI 就行。下面最后一张图就是这么摆出来的——锁卡数着倒计时、同一封信显影、agent 回信（聊天页本身不在仓库里，卡片在）。
 
 <p align="center">
-  <img src="docs/img/ios-pile.jpg" width="30%" alt="信墙：合着的一叠雾信，最上面一封盖着火漆、数着倒计时">
-  <img src="docs/img/ios-arc.jpg" width="30%" alt="沿弧线扇开；显影过的那封在一叠雾里擦得干干净净">
-  <img src="docs/img/ios-letter.jpg" width="30%" alt="显影的信抽出来擦净，回信跟在后面，也是一小页">
+  <img src="docs/img/ios-pile.jpg" width="23%" alt="信墙：合着的一叠雾信，最上面一封盖着火漆、数着倒计时">
+  <img src="docs/img/ios-arc.jpg" width="23%" alt="沿弧线扇开；显影过的那封在一叠雾里擦得干干净净">
+  <img src="docs/img/ios-letter.jpg" width="23%" alt="显影的信抽出来擦净，回信跟在后面，也是一小页">
+  <img src="docs/img/ios-chat.jpg" width="23%" alt="聊天卡片摆进对话里：锁卡数着倒计时，然后同一封信显影，然后 agent 的回信">
 </p>
 <p align="center"><sub>截图里的景是一户人家自己的照片——你的搭建会把你给的任何一张图糊成雾。</sub></p>
 

@@ -84,6 +84,13 @@ Two reference clients of the writer's side ship in this repository, speaking the
 
 The chat-side cards (locked card, reveal card, reply row, tombstone) ship in both as components with a fixture-data demo — the locked card never flips into content, because transcripts get replayed.
 
+<p align="center">
+  <img src="docs/img/ios-pile.jpg" width="30%" alt="The wall: a closed pile of fogged letters, the top one sealed with wax and counting down">
+  <img src="docs/img/ios-arc.jpg" width="30%" alt="The pile fanned out along the arc; a developed letter stands wiped clear among the fogged ones">
+  <img src="docs/img/ios-letter.jpg" width="30%" alt="A developed letter pulled out and wiped clear, its reply following as a short page">
+</p>
+<p align="center"><sub>The scenes in these shots are one household's own photos — your build fogs up whatever picture you give it.</sub></p>
+
 ## Hooks
 
 Each hook is either a command (gets the JSON payload on **stdin** — letters outgrow argv limits) or a webhook (gets it as a POST body):

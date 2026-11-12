@@ -84,6 +84,13 @@ agent 那头只需要 `dub.py` 和 localhost。
 
 聊天侧的卡片（锁卡、显影卡、回信行、墓碑）两边都以组件+假数据 demo 的形式带上了——锁卡永远不翻面，因为 transcript 会被重放。
 
+<p align="center">
+  <img src="docs/img/ios-pile.jpg" width="30%" alt="信墙：合着的一叠雾信，最上面一封盖着火漆、数着倒计时">
+  <img src="docs/img/ios-arc.jpg" width="30%" alt="沿弧线扇开；显影过的那封在一叠雾里擦得干干净净">
+  <img src="docs/img/ios-letter.jpg" width="30%" alt="显影的信抽出来擦净，回信跟在后面，也是一小页">
+</p>
+<p align="center"><sub>截图里的景是一户人家自己的照片——你的搭建会把你给的任何一张图糊成雾。</sub></p>
+
 ## 钩子
 
 每个钩子要么是命令（JSON 载荷走 **stdin**——信会长到 argv 装不下），要么是 webhook（POST body）：

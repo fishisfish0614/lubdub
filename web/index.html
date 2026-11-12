@@ -3,6 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#2b3442">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="lubdub">
 <title>lubdub</title>
 <!--
   lubdub reference web client — the writer's side, as one static page.
@@ -572,7 +580,13 @@ const api = {
         this.total = j.total || this.letters.length;
         this.error = null;
       }
-    } catch { this.error = "couldn't reach the server"; }
+    } catch {
+      // a fetch that throws never left the browser — nine times out of ten
+      // it's a mistyped Server field, not a server that's down
+      this.error = store.get("server", "")
+        ? `can't reach ${base} — if this page is served by your lubdub, leave Server empty in settings`
+        : "couldn't reach the server";
+    }
     this.loading = false; this.loaded = true;
     Wall.render();
   },
@@ -1280,6 +1294,8 @@ for (const id of ["settings", "demo"]) {
   setInterval(() => { Wall.els.forEach(el => el._tick && el._tick()); }, 30000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) api.reload(); });
   addEventListener("resize", () => Wall.layout());
+  // installable as a PWA; the worker is network-first, never a stale cache
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
 </script>
 </body>

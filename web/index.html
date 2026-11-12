@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta name="theme-color" content="#2b3442">
+<meta name="theme-color" content="#546678">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -44,18 +44,17 @@
     --card-h: 184px;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; background: rgb(31, 38, 54); }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: rgb(23, 29, 40);
     touch-action: none;
     user-select: none; -webkit-user-select: none;
   }
 
   /* ---- the window ---- */
-  #bg { position: fixed; inset: 0; background-size: cover; background-position: center; }
+  #bg { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-size: cover; background-position: center; }
   #bg .breath, #bg .grain, #bg .veil { position: absolute; inset: 0; pointer-events: none; }
-  #wall { position: fixed; inset: 0; }
+  #wall { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
   #empty {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     text-align: center; padding: 0 40px; color: var(--soft);
@@ -115,7 +114,7 @@
   @media (prefers-reduced-motion: reduce) { .seal .heart { animation: none; } }
 
   /* ---- the pulled-out pane ---- */
-  #overlay { position: fixed; inset: 0; z-index: 30; display: none; }
+  #overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 30; display: none; }
   #overlay.on { display: block; }
   #overlay .dim { position: absolute; inset: 0; background: rgba(0,0,0,0.38); opacity: 0; transition: opacity .3s; }
   #pane-wrap { position: absolute; inset: 0; display: flex; flex-direction: column;
@@ -163,7 +162,8 @@
     display: none; align-items: flex-end; justify-content: center; }
   .sheet-back.on { display: flex; }
   .sheet { background: rgb(242, 242, 247); color: rgb(28,28,30); width: 100%; max-width: 560px;
-    max-height: 88dvh; overflow-y: auto; border-radius: 18px 18px 0 0; padding: 16px 20px 30px;
+    max-height: 88vh; overflow-y: auto; border-radius: 18px 18px 0 0;
+    padding: 16px 20px calc(30px + max(0px, env(safe-area-inset-bottom, 0px) - 12px));
     touch-action: pan-y; user-select: text; -webkit-user-select: text; }
   @media (prefers-color-scheme: dark) {
     .sheet { background: rgb(28,28,30); color: rgb(240,240,245); }
